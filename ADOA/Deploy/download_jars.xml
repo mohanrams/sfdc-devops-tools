@@ -1,0 +1,9 @@
+<project name="Install Jar" default="download-jars">
+    <target name="download-jars" description="Download ANT optional jars">
+        <mkdir dir="${user.home}/.ant/lib"/>
+        <get dest="${user.home}/.ant/lib/salesforce.zip"   src="https://na34.salesforce.com/dwnld/SfdcAnt/salesforce_ant_###SF_API_VERSION###.0.zip"/>
+        <get dest="${user.home}/.ant/lib/groovy-all-2.2.1.jar" src="http://central.maven.org/maven2/org/codehaus/groovy/groovy-all/2.2.1/groovy-all-2.2.1.jar"/>
+
+        <unzip src="${user.home}/.ant/lib/salesforce.zip" dest="${user.home}/.ant/lib/" />
+    </target>
+</project>

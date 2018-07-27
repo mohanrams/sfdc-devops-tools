@@ -1,0 +1,630 @@
+<project name="Deploy to Enviroment" default="startDeployProcess" basedir="." xmlns:sf="antlib:com.salesforce">
+  <property environment="env"></property>
+  <taskdef resource="com/salesforce/antlib.xml" uri="antlib:com.salesforce">
+    <classpath>
+      <pathelement location="../ant-salesforce.jar" />
+    </classpath>
+  </taskdef>
+  <!-- define tasks -->
+  <taskdef name="groovy" classname="org.codehaus.groovy.ant.Groovy">
+    <classpath>
+      <pathelement location="../groovy-all-2.2.1.jar" />
+    </classpath>
+   </taskdef>
+
+  <!-- Load credentials from configuration folder -->
+  <target name="load_credentials">
+    <property name="SANDBOX" value="${env.SANDBOX}"/>
+    <property name="PACKAGE_TO_VALIDATE" value="${env.PACKAGE_TO_VALIDATE}"/>
+    <property name="SALESFORCE_URL" value="${env.SALESFORCE_URL}"/>
+    <property name="SALESFORCE_USERNAME" value="${env.SALESFORCE_USERNAME}"/>
+    <property name="SALESFORCE_PASSWORD" value="${env.SALESFORCE_PASSWORD}"/>
+    <property name="SALESFORCE_VALIDATIONID" value="${env.SALESFORCE_VALIDATIONID}"/>
+    <property name="SALESFORCE_TESTLEVEL" value="${env.SALESFORCE_TESTLEVEL}"/>
+    <property name="SALESFORCE_TESTCLASSES" value="${env.SALESFORCE_TESTCLASSES}"/>
+    <echo message="Loading ./build.properties"></echo>
+    <property file="./build.properties"></property>
+    <property file="./${SANDBOX}/build.properties"></property>
+  </target>
+
+  <!-- Prepare files -->
+  <target name="init" depends="load_credentials">
+    <!-- Create the time stamp -->
+    <tstamp/>
+    <!-- Create the build directory structure used by compile --> 
+    <delete failonerror="false" dir="${DIST_DIR}"/>   
+    <!--<mkdir dir="${DIST_DIR}"/>-->
+    <mkdir dir="dist"/>
+    <copy file="package.xml" todir="${DIST_DIR}"/>
+    <delete failonerror="false" dir="${DIST_DESTRUCTIVE}"/> 
+    <!--delete failonerror="false" dir="${DIST_DESTRUCTIVE}"/> -->
+    <mkdir dir="${DIST_DESTRUCTIVE}"/>      
+    <copy file="package.xml" todir="${DIST_DIR}"/>    
+    <!--<copy file="package.xml" todir="${DIST_DESTRUCTIVE}"/> --> 
+    <!--<copy file="destructiveChanges.xml" todir="${DIST_DESTRUCTIVE}" /> --> 
+  </target>
+
+  <target name="init_prebuilt" depends="load_credentials">
+    <!-- Create the time stamp -->
+    <tstamp/>
+    <!-- Create the build directory structure used by compile -->
+  </target>
+
+  <target name="createDeployPkg" depends="init">
+    <groovy>
+      <classpath>
+        <dirset dir="../groovy"/>
+      </classpath>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      String distFolder = "${properties['DIST_DIR']}"
+      String baseDir = new File(System.getProperty("user.dir"))
+
+      def packageManager = new PackageManager( sourceDir: srcDir,
+                                               destinationDir: distFolder,
+                                               baseDir: baseDir)
+
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      packageManager.isDestructiveChangesPresent = 'Destructive' == packageToValidate
+      packageManager.createDeployPackage()
+    </groovy>
+  </target>
+
+  <target name="delete_social_post_files" depends="createDeployPkg">
+    <echo message="deleting Social-Post related files from ${DIST_DIR}..." />
+    <delete file="${DIST_DIR}/workflows/SocialPost.workflow" failonerror="false" />
+    <delete file="${DIST_DIR}/layouts/SocialPost-Social Post Layout.layout" failonerror="false" />
+  </target>
+
+  <target name="deployPkg" depends="delete_social_post_files">
+    <groovy>
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      switch ( packageToValidate ) {
+          case 'Main_Package':
+              properties['DIST_DIR'] = "dist"
+              break
+          case 'Destructive':
+              properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+              break
+          default:
+              properties['DIST_DIR'] = "dist"
+      }
+      println "Deploy from ${properties['DIST_DIR']}"
+    </groovy>
+    <sf:deploy
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      username="${SALESFORCE_USERNAME}"
+      password="${SALESFORCE_PASSWORD}"
+      serverurl="${SALESFORCE_URL}"
+      deployRoot="${DIST_DIR}" 
+    />
+  </target>
+  
+  <target name="validate_no_test_cases" depends="delete_social_post_files">
+    <sf:deploy
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      checkOnly="true"
+      pollWaitMillis="40000"
+      deployRoot="${DIST_DIR}"
+      serverurl="${SALESFORCE_URL}"
+      password="${SALESFORCE_PASSWORD}"
+      username="${SALESFORCE_USERNAME}"/>
+  </target>
+
+  <target name="deployPrebuiltPkg" depends="init_prebuilt">
+    <groovy>
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      switch ( packageToValidate ) {
+          case 'Main_Package':
+              properties['DIST_DIR'] = "dist"
+              break
+          case 'Destructive':
+              properties['DIST_DIR'] = "dist_destructive"
+              break
+          default:
+              properties['DIST_DIR'] = "dist"
+      }
+      println "Deploy from ${properties['DIST_DIR']}"
+    </groovy>
+      <sf:deploy
+        autoUpdatePackage="true"
+        rollbackOnError="true"
+        username="${SALESFORCE_USERNAME}"
+        password="${SALESFORCE_PASSWORD}"
+        serverurl="${SALESFORCE_URL}"
+        deployRoot="${DIST_DIR}" 
+		testLevel= "${SALESFORCE_TESTLEVEL}"/>
+  </target>
+
+  <!-- Validate, startFullValidationProcess/Validation_RunAllTests -->
+  <target name="validate" depends="delete_social_post_files">
+    <groovy>
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      switch ( packageToValidate ) {
+          case 'Main_Package':
+              properties['DIST_DIR'] = "dist"
+              break
+          case 'Destructive':
+              properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+              break
+          default:
+              properties['DIST_DIR'] = "dist"
+      }
+      println "Validating on ${properties['DIST_DIR']}"
+    </groovy>
+    <sf:deploy
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      runAllTests="true"
+      checkOnly="true"
+      pollWaitMillis="40000"
+      deployRoot="${DIST_DIR}"
+      serverurl="${SALESFORCE_URL}"
+      password="${SALESFORCE_PASSWORD}"
+      username="${SALESFORCE_USERNAME}"
+	  testLevel= "${SALESFORCE_TESTLEVEL}"/>
+  </target>
+
+  <target name="startFullValidationProcess" >
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+
+      /*  The following code enables CI support for versioned components
+          If the deployed component is already deployed and active, instead of
+          failing the build, the script will remove the active component from 
+          the deployment package, and retry the validation.
+      */ 
+      def exception = ""
+      boolean flowException = false 
+      // Try to validate, and catch any exceptions
+      try {
+        project.executeTarget("validate")
+      } catch(Exception ex) { 
+        // Show that the build failed, and print error
+        println("\nWARNING: Full Validation failed. Checking if it's an issue with versioned components")
+        exception = ex.toString().readLines()
+        // Go trough the exception, and see if there are any issues related to flows.
+        // If yes, then remove the offending component
+        for (item in exception) {
+          if (item.contains("Error: The version of the flow you're updating")) {
+            flowException = true
+            flowFile = (item.split(' -- ')[0].split('.  ', 2)[1])
+            fileSuccessfullyDeleted = new File(srcDir + '/src/' + flowFile).delete()
+            if (fileSuccessfullyDeleted == true) { 
+              println("INFO: Removed ${flowFile} from deployable package.") 
+            }
+          }
+        }
+        // Check if there ware any issues with versioned components, and if not, fail the build
+        if (flowException != true) {
+          throw ex
+        } else {
+          println("\nINFO: Restarting validation with removed components")
+          project.executeTarget("validate")
+        }
+      }
+
+    </groovy>
+  </target>
+
+  <target name="Validation_RunAllTests" depends="delete_social_post_files">
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+
+      /*  The following code enables CI support for versioned components
+          If the deployed component is already deployed and active, instead of
+          failing the build, the script will remove the active component from 
+          the deployment package, and retry the validation.
+      */ 
+      def exception = ""
+      boolean flowException = false 
+      // Try to validate, and catch any exceptions
+      try {
+        project.executeTarget("validate")
+      } catch(Exception ex) { 
+        // Show that the build failed, and print error
+        println("\nWARNING: Full Validation failed. Checking if it's an issue with versioned components")
+        exception = ex.toString().readLines()
+        // Go trough the exception, and see if there are any issues related to flows.
+        // If yes, then remove the offending component
+        for (item in exception) {
+          if (item.contains("Error: The version of the flow you're updating")) {
+            flowException = true
+            flowFile = (item.split(' -- ')[0].split('.  ', 2)[1])
+            fileSuccessfullyDeleted = new File(srcDir + '/src/' + flowFile).delete()
+            if (fileSuccessfullyDeleted == true) { 
+              println("INFO: Removed ${flowFile} from deployable package.") 
+            }
+          }
+        } 
+        // Check if there ware any issues with versioned components, and if not, fail the build
+        if (flowException != true) {
+          throw ex
+        } else {
+          println("\nINFO: Restarting validation with removed components")
+          project.executeTarget("validate")
+        } 
+      }
+
+    </groovy>
+  </target>
+  <!-- // Validate, startFullValidationProcess/Validation_RunAllTests -->
+
+  <!-- Load credentials from configuration folder -->
+  <target name="bind_credentials">
+        <property name="SANDBOX" value="${env.SANDBOX}"/>
+        <property name="PACKAGE_TO_VALIDATE" value="${env.PACKAGE_TO_VALIDATE}"/>
+        <property name="SALESFORCE_URL" value="${env.SALESFORCE_URL}"/>
+        <property name="SALESFORCE_USERNAME" value="${env.SALESFORCE_USERNAME}"/>
+        <property name="SALESFORCE_PASSWORD" value="${env.SALESFORCE_PASSWORD}"/>
+        <echo message="Loading ./build.properties"></echo>
+        <property file="./build.properties"></property>
+        <property file="./${SANDBOX}/build.properties"></property>
+  </target>
+
+  <!-- Prepare files -->
+  <target name="bind" depends="bind_credentials">
+        <!-- Create the time stamp -->
+        <tstamp/>
+        <!-- Create the build directory structure used by compile -->
+        <delete failonerror="false" dir="${DIST_DIR}"/>
+        <mkdir dir="${DIST_DIR}"/>
+        <delete failonerror="false" dir="${DIST_DESTRUCTIVE}"/>
+        <mkdir dir="${DIST_DESTRUCTIVE}"/>
+        
+      <mkdir dir="${retrieveUnpackaged}"/>
+        
+        <mkdir dir="${unpackaged}"/>
+        <copy file="package.xml" todir="${unpackaged}" />
+    </target>
+
+  <target name="bind_prebuilt" depends="bind_credentials">
+      <!-- Create the time stamp -->
+      <tstamp/>
+      <!-- Create the build directory structure used by compile -->
+  </target>
+
+  <target name="On_Demand_CreateDeployPkg" depends="bind">
+    <groovy>
+        <classpath>
+            <dirset dir="../groovy"/>
+        </classpath>
+        String srcDir = "${properties['env.WORKSPACE']}"
+        String distFolder = "${properties['DIST_DIR']}"
+        String baseDir = new File(System.getProperty("user.dir"))
+
+        def packageManager = new PackageManager( sourceDir: srcDir, destinationDir: distFolder, baseDir: baseDir)
+        String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+        packageManager.isDestructiveChangesPresent = 'Destructive' == packageToValidate
+        packageManager.createDeployPackage()
+    </groovy>
+  </target>
+
+  <target name="bind_delete_social_post_files" depends="On_Demand_CreateDeployPkg">
+      <echo message="deleting Social-Post related files from ${DIST_DIR}..." />
+      <delete file="${DIST_DIR}/workflows/SocialPost.workflow" failonerror="false" />
+      <delete file="${DIST_DIR}/layouts/SocialPost-Social Post Layout.layout" failonerror="false" />
+  </target>
+
+  <!-- On_Demand_StartValidationProcess -->
+  <target name="On_Demand_Validate" depends="delete_social_post_files">
+    <groovy>
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      switch ( packageToValidate ) {
+          case 'Main_Package':
+              properties['DIST_DIR'] = "dist"
+          break
+          case 'Destructive':
+              properties['DIST_DIR'] = "dist_destructive"
+          break
+          default:
+              properties['DIST_DIR'] = "dist"
+      }
+      println "On Demand Validating without run all tests on ${properties['DIST_DIR']}"
+    </groovy>
+    <sf:deploy
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      runAllTests="false"
+      checkOnly="true"
+      pollWaitMillis="40000"
+      deployRoot="${DIST_DIR}"
+      serverurl="${SALESFORCE_URL}"
+      password="${SALESFORCE_PASSWORD}"
+      username="${SALESFORCE_USERNAME}"
+    />
+  </target>
+
+  <target name="On_Demand_StartValidationProcess">
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      def exception = ""
+      boolean flowException = false 
+      try {
+        project.executeTarget("On_Demand_Validate")
+      } catch(Exception ex) { 
+        println("\nWARNING: Full Validation failed. Checking if it's an issue with versioned components")
+        exception = ex.toString().readLines()
+        for (item in exception) {
+          if (item.contains("Error: The version of the flow you're updating")) {
+            flowException = true
+            flowFile = (item.split(' -- ')[0].split('.  ', 2)[1])
+            fileSuccessfullyDeleted = new File(srcDir + '/src/' + flowFile).delete()
+            if (fileSuccessfullyDeleted == true) { 
+              println("INFO: Removed ${flowFile} from deployable package.") 
+            }
+          }
+        } 
+        if (flowException != true) {
+          throw ex
+        } else {
+          println("\nINFO: Restarting validation with removed components")
+          project.executeTarget("On_Demand_Validate")
+        }
+      }
+    </groovy>
+  </target>
+  <!-- // On_Demand_StartValidationProcess -->
+
+  <!-- On_Demand_Deploy -->
+  <target name="On_Demand_DeployPrebuiltPkg" depends="bind_delete_social_post_files">
+    <groovy>
+        String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+        switch ( packageToValidate ) {
+            case 'Main_Package':
+                properties['DIST_DIR'] = "dist"
+            break
+            case 'Destructive':
+                properties['DIST_DIR'] = "dist_destructive"
+            break
+            default:
+                properties['DIST_DIR'] = "dist"
+        }
+        println "On Demand Deploy from ${properties['DIST_DIR']}"
+    </groovy>
+    <sf:deploy
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      username="${SALESFORCE_USERNAME}"
+      password="${SALESFORCE_PASSWORD}"
+      serverurl="${SALESFORCE_URL}"
+      deployRoot="${DIST_DIR}" 
+    />
+  </target>
+
+  <target name="On_Demand_Deploy">
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      // Code for testing if there are any versioned components
+      def exception = ""
+      boolean flowException = false 
+      try {
+        project.executeTarget("On_Demand_DeployPrebuiltPkg")
+      } catch(Exception ex) { 
+        println("\nWARNING: Full Validation failed. Checking if it's an issue with versioned components")
+        exception = ex.toString().readLines()
+        for (item in exception) {
+          if (item.contains("Error: The version of the flow you're updating")) {
+            flowException = true
+            flowFile = (item.split(' -- ')[0].split('.  ', 2)[1])
+            fileSuccessfullyDeleted = new File(srcDir + '/src/' + flowFile).delete()
+            if (fileSuccessfullyDeleted == true) { 
+              println("INFO: Removed ${flowFile} from deployable package.") 
+            }
+          }
+        }
+        if (flowException != true) {
+          throw ex
+        } else {
+          println("\nINFO: Restarting validation with removed components")
+          project.executeTarget("On_Demand_DeployPrebuiltPkg")
+        }  
+      }
+    </groovy>
+  </target>
+  <!-- // On_Demand_Deploy -->
+
+  <!-- On_Demand_StartRunAllTestsValidationProcess -->
+  <target name="On_Demand_Validation_RunAllTests" depends="bind_delete_social_post_files">
+    <groovy>
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      switch ( packageToValidate ) {
+          case 'Main_Package':
+              properties['DIST_DIR'] = "dist"
+          break
+          case 'Destructive':
+              properties['DIST_DIR'] = "dist_destructive"
+          break
+          default:
+              properties['DIST_DIR'] = "dist"
+      }
+      println "On Demand Validating run all tests on ${properties['DIST_DIR']}"
+    </groovy>
+    <sf:deploy
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      runAllTests="true"
+      checkOnly="true"
+      pollWaitMillis="40000"
+      deployRoot="${DIST_DIR}"
+      serverurl="${SALESFORCE_URL}"
+      password="${SALESFORCE_PASSWORD}"
+      username="${SALESFORCE_USERNAME}"
+    />
+  </target>
+
+  <target name="On_Demand_StartRunAllTestsValidationProcess">
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      // Code for testing if there are any versioned components
+      def exception = ""
+      boolean flowException = false 
+      try {
+        project.executeTarget("On_Demand_Validation_RunAllTests")
+      } catch(Exception ex) { 
+        println("\nWARNING: Full Validation failed. Checking if it's an issue with versioned components")
+        exception = ex.toString().readLines()
+        for (item in exception) {
+          if (item.contains("Error: The version of the flow you're updating")) {
+            flowException = true
+            flowFile = (item.split(' -- ')[0].split('.  ', 2)[1])
+            fileSuccessfullyDeleted = new File(srcDir + '/src/' + flowFile).delete()
+            if (fileSuccessfullyDeleted == true) { 
+              println("INFO: Removed ${flowFile} from deployable package.") 
+            }
+          }
+        }
+        if (flowException != true) {
+          throw ex
+        } else {
+          println("\nINFO: Restarting validation with removed components")
+          project.executeTarget("On_Demand_Validation_RunAllTests")
+        }
+      }
+    </groovy>
+  </target>
+  <!-- // On_Demand_StartRunAllTestsValidationProcess -->
+  
+  <!-- changes for destructive-->
+  <target name="delete_DeployComp" depends="delete_social_post_files">
+    <groovy>
+      String packageToValidate = properties["PACKAGE_TO_VALIDATE"]
+      switch ( packageToValidate ) {
+             case 'Main_Package':
+                   properties['DIST_DIR'] = "dist"
+                   break
+             case 'Destructive':
+                   properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+                   break
+             default:
+                   properties['DIST_DIR'] = "dist"
+      }
+      println "Deploy from ${properties['DIST_DESTRUCTIVE']}"
+    </groovy>
+    <sf:deploy
+      ignoreWarnings="true"
+      autoUpdatePackage="true"
+      rollbackOnError="true"
+      username="${SALESFORCE_USERNAME}"
+      password="${SALESFORCE_PASSWORD}"
+      serverurl="${SALESFORCE_URL}"
+      pollWaitMillis="40000"
+      deployRoot="${DIST_DESTRUCTIVE}"
+    />
+  </target>
+  <target name="deleteDeployComponent" >
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+      project.executeTarget("delete_DeployComp")
+    </groovy>
+  </target>
+  <!-- Changes complete-->
+
+  <!-- changes for Retrieving components-->
+  <target name="Retrieve" depends="bind">
+    <sf:retrieve
+		username="${SALESFORCE_USERNAME}"
+		password="${SALESFORCE_PASSWORD}"
+		serverurl="${SALESFORCE_URL}"
+        pollWaitMillis="40000"
+        retrieveTarget="retrieveUnpackaged" 
+        unpackaged="unpackaged/package.xml"/>
+   </target>
+               
+   <target name="RetrieveComponent" >
+   <!-- Create the build directory structure used by compile -->
+	<delete failonerror="false" dir="${DIST_DIR}"/>
+		<groovy>
+			String srcDir = "${properties['env.WORKSPACE']}"
+            properties['DIST_DIR'] = "dist"
+            properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+            properties['retrieveUnpackaged'] = "retrieveUnpackaged"
+            properties['unpackaged'] = "unpackaged"
+            project.executeTarget("Retrieve")
+		</groovy>
+	</target>
+  <!-- Changes complete-->
+
+  <target name="quickdeploy" depends="init">
+    <sf:deployRecentValidation        
+        username="${SALESFORCE_USERNAME}"
+        password="${SALESFORCE_PASSWORD}"
+        serverurl="${SALESFORCE_URL}"
+        recentValidationId = "${SALESFORCE_VALIDATIONID}"
+        deployroot="Retrieve"/>
+  </target>
+  
+  <!-- Validate with specific test classes-->
+  <target name="validateWithSpecifcTestClass" depends="delete_social_post_files">
+  <echo message="Deploying with specific test classes ${SALESFORCE_TESTCLASSES}"></echo>
+    <script language="javascript"><![CDATA[
+    var deployTask = project.createTask('antlib:com.salesforce:deploy');
+    deployTask.setUsername(project.getProperty("SALESFORCE_USERNAME"));
+    deployTask.setPassword(project.getProperty("SALESFORCE_PASSWORD"));
+    deployTask.setServerURL(project.getProperty("SALESFORCE_URL"));
+    deployTask.setDeployRoot("dist");
+        deployTask.setAutoUpdatePackage(true);
+    var testLevel = project.getProperty("SALESFORCE_TESTLEVEL");
+    deployTask.setTestLevel(testLevel);
+      deployTask.setCheckonly(true); 
+    deployTask.setMaxPoll("300");
+    var tests = project.getProperty("SALESFORCE_TESTCLASSES");
+    if (testLevel == 'RunSpecifiedTests' && tests) {
+      tests = tests.split(',');
+      var classClazz = deployTask.getClass().getClassLoader().loadClass("com.salesforce.ant.DeployTask$CodeNameElement");
+      for (var i = 0; i < tests.length; i++) {
+      var runTest = classClazz.newInstance();
+      runTest.addText(tests[i]);
+      deployTask.addRunTest(runTest);
+      }
+    }
+    deployTask.perform();
+    ]]></script>
+  </target>
+  
+  <target name="startValidationProcessWithSpecificTestClasses" >
+    <groovy>
+      String srcDir = "${properties['env.WORKSPACE']}"
+      properties['DIST_DIR'] = "dist"
+      properties['DIST_DESTRUCTIVE'] = "dist_destructive"
+      project.executeTarget("validateWithSpecifcTestClass")
+    </groovy>
+  </target>
+  
+  <target name="deployWithSpecifcTestClass" depends="load_credentials">
+  <echo message="Deploying with specific test classes ${SALESFORCE_TESTCLASSES}"></echo>
+    <script language="javascript"><![CDATA[
+    var deployTask = project.createTask('antlib:com.salesforce:deploy');
+    deployTask.setUsername(project.getProperty("SALESFORCE_USERNAME"));
+    deployTask.setPassword(project.getProperty("SALESFORCE_PASSWORD"));
+    deployTask.setServerURL(project.getProperty("SALESFORCE_URL"));
+    deployTask.setDeployRoot("dist");
+        deployTask.setAutoUpdatePackage(true);
+    var testLevel = project.getProperty("SALESFORCE_TESTLEVEL");
+    deployTask.setTestLevel(testLevel);
+      deployTask.setCheckonly(false); 
+    deployTask.setMaxPoll("300");
+    var tests = project.getProperty("SALESFORCE_TESTCLASSES");
+    if (testLevel == 'RunSpecifiedTests' && tests) {
+      tests = tests.split(',');
+      var classClazz = deployTask.getClass().getClassLoader().loadClass("com.salesforce.ant.DeployTask$CodeNameElement");
+      for (var i = 0; i < tests.length; i++) {
+      var runTest = classClazz.newInstance();
+      runTest.addText(tests[i]);
+      deployTask.addRunTest(runTest);
+      }
+    }
+    deployTask.perform();
+    ]]></script>
+  </target>
+</project>
